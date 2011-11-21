@@ -2,7 +2,6 @@ import unittest
 import string
 import operator as op
 
-
 class Blank:
     pass
 
@@ -11,36 +10,26 @@ _ = Blank
 
 class List(list):
     """
-    join
+    do
+    tee
     map
-    compact
     keep
     rem
     some/has
     all
     count () = len, (x|f)
     empty () == [], (f) -> x in [0, None]..
+
+    * Useful shortcut.
     attr
     item
     invoke
-    Uniq -> Can take f to specify on what it should uniq.
-    Flatten
-    Do do(lambda seq: ...)
-       (and last_value = the result of the last operation)
-       also do will pass extra arg. so do(self.assertTrue, ...)
-       = do(lambda seq: self.assertTrue(seq, ...)
-       = self.assertTrue(seq, ...)
 
      aliases:
      'append', 'extend', 'sort', 'reverse', 'insert'
-
-
-    idea:
-    create -> Easy way to initialize a list.. List().create(20, rand)
     """
 
     def __init__(self, *args, **kwargs):
-        self._moka_save = False
         list.__init__(self, *args, **kwargs)
 
     @staticmethod
@@ -54,12 +43,6 @@ class List(list):
 
     def _f(self, *args, **kwargs):
         args = list(args)
-
-        # shortcut to use operator module.
-        if kwargs:
-            k, v = kwargs.items()[0]
-            fn = getattr(op, k)
-            return lambda x: fn(x, v)
 
         f = args.pop(0)
 
@@ -76,45 +59,23 @@ class List(list):
             return f(*args, **kwargs)
         return tmp
 
-    def saving(self, save=True):
-        self._moka_save = save
-        return self
-
-    def join(self, s):
-        return s.join(self)
-
-    def compact(self, f=None):
-        if not f:
-            f = lambda x: not not x
-
-        return self.keep(f)
+    def clone(self):
+        return List(self)
 
     def _moka_assign(self, items):
-        if self._moka_save:
-            self[:] = items
-        else:
-            return List(items)
+        self[:] = items
+        return self
 
     def map(self, *args, **kwargs):
         f = self._f(*args, **kwargs)
         return self._moka_assign(f(x) for x in self)
 
-    def do(self, function, *args, **kwargs):
-        self.last_value = function(self, *args, **kwargs)
+    def tee(self, *args, **kwargs):
+        self.last_value = self._f(*args, **kwargs)(self)
         return self
 
-    def uniq(self, f=None):
-        if not self:
-            return self
-
-        if f:
-            d = {}
-            for k in self:
-                d[f(k)] = k
-
-            return self._moka_assign(d.values())
-
-        return self._moka_assign(set(self))
+    def do(self, *args, **kwargs):
+        return self._f(*args, **kwargs)(self)
 
     def invoke(self, name, *args, **kwargs):
         return self.map(lambda x: getattr(x, name)(*args, **kwargs))
@@ -161,17 +122,6 @@ class List(list):
 
         return False
 
-    def flatten(self):
-        elements = []
-
-        for el in self:
-            try:
-                elements.extend(List(el).flatten())
-            except TypeError:
-                elements.append(el)
-
-        return self._moka_assign(elements)
-
     def all(self, *args, **kwargs):
         f = self._f(*args, **kwargs)
 
@@ -204,53 +154,54 @@ class ListTest(unittest.TestCase):
         self.assertEqual(self.seq.map(lambda x: x * 2), [2, 4, 6, 8, 10])
 
     def test_keep(self):
-        self.assertEqual(self.seq.keep(lambda x: x < 3), [1, 2])
-        self.assertEqual(self.seq.keep(eq=3), [3])
+        self.assertEqual(self.seq.clone().keep(lambda x: x < 3), [1, 2])
+        self.assertEqual(self.seq.clone().keep(op.eq, 3), [3])
         self.assertEqual(self.seq.keep(op.eq, 3), [3])
 
     def test_rem(self):
-        self.assertEqual(self.seq.rem(lambda x: x < 3), [3, 4, 5])
-        self.assertEqual(self.seq.rem(eq=3), [1, 2, 4, 5])
+        self.assertEqual(self.seq.clone().rem(lambda x: x < 3), [3, 4, 5])
+        self.assertEqual(self.seq.rem(op.eq, 3), [1, 2, 4, 5])
 
     def test_mix(self):
         r = (self.seq
                  .map(lambda x: x * 2)
                  .rem(lambda x: x < 5)
                  .keep(lambda x: x % 2 == 0)
-                 .rem(eq=6))
+                 .rem(op.eq, 6))
 
         self.assertEqual(r, [8, 10])
 
     def test_self(self):
         self.assertEqual(
             (self.seq
+             .clone()
              .map(lambda x: x * 2)
              .rem(lambda x: x < 5)
              .keep(lambda x: x % 2 == 0)
-             .rem(eq=6)
-             .do(self.assertEqual, [8, 10])),
+             .rem(op.eq, 6)
+             .tee(self.assertEqual, [8, 10])),
              [8, 10])
 
         (self.seq
               .keep(lambda x: x > 4)
-              .do(self.assertEqual, [5])
+              .tee(self.assertEqual, [5])
               .last_value) = [5]
 
     def test_some(self):
         self.assert_(self.seq.some(lambda x: x < 3))
 
-        self.assert_(self.seq.some(eq=4))
+        self.assert_(self.seq.some(op.eq, 4))
 
-        self.assertFalse(List([1, 1, 1]).some(eq=2))
+        self.assertFalse(List([1, 1, 1]).some(op.eq, 2))
 
         self.assertFalse(self.seq.some(lambda x: x < 1))
 
     def test_has(self):
-        self.assert_(List(range(10)).has(eq=5))
+        self.assert_(List(range(10)).has(op.eq, 5))
         self.assert_(List(range(10)).has(lambda x: x in [1, 2]))
 
     def test_find(self):
-        self.assertEqual(self.seq.find(eq=3), 3)
+        self.assertEqual(self.seq.find(op.eq, 3), 3)
 
         self.assertEqual(self.seq.find(lambda x: x == 3), 3)
 
@@ -259,9 +210,9 @@ class ListTest(unittest.TestCase):
     def test_all(self):
         self.assertFalse(self.seq.all(lambda x: x < 3))
 
-        self.assertFalse(self.seq.all(eq=4))
+        self.assertFalse(self.seq.all(op.eq, 4))
 
-        self.assert_(List([1, 1, 1]).all(eq=1))
+        self.assert_(List([1, 1, 1]).all(op.eq, 1))
 
         self.assert_(self.seq.all(lambda x: x < 10))
 
@@ -298,7 +249,7 @@ class ListTest(unittest.TestCase):
 
     def test_count(self):
         self.assertEqual(self.seq.count(), 5)
-        self.assertEqual(self.seq.count(eq=3), 1)
+        self.assertEqual(self.seq.count(op.eq, 3), 1)
         self.assertEqual(self.seq.count(lambda x: x in [1, 3]), 2)
 
     def test_empty(self):
@@ -309,8 +260,8 @@ class ListTest(unittest.TestCase):
 
     def test_attr(self):
         self.assertEqual(self.seq.attr('real'), [1, 2, 3, 4, 5])
-        self.assertEqual(self.seq.attr('imag'), [0, 0, 0, 0, 0])
-        self.assertEqual(self.seq.map(op.attrgetter('real')),
+        self.assertEqual(self.seq.clone().attr('imag'), [0, 0, 0, 0, 0])
+        self.assertEqual(self.seq.clone().map(op.attrgetter('real')),
                          [1, 2, 3, 4, 5])
 
     def test_item(self):
@@ -325,35 +276,6 @@ class ListTest(unittest.TestCase):
         (self.seq
              .map(op.methodcaller('__str__'))
              .do(self.assertEqual, ['1', '2', '3', '4', '5']))
-
-    def test_uniq(self):
-        self.assertEqual(List([2, 1, 2, 3, 2, 1, 2, 3]).uniq().sort(),
-                         [1, 2, 3])
-
-        (List([dict(a=1), dict(b=1), dict(c=2)])
-           .uniq(lambda x: x.items()[0][1])
-           .do(lambda seq: self.assertTrue(dict(a=1) in seq or
-                                           dict(b=1) in seq))
-
-           .do(lambda seq: self.assertTrue(dict(c=2) in seq))
-           .do(lambda seq: self.assertEqual(seq.count(), 2)))
-
-        (List("test")
-          .uniq()
-          .sort()
-          .do(self.assertEqual, list('est')))
-
-    def test_join(self):
-        self.assertEqual(List(['t', 'e', 's', 't']).join(','), 't,e,s,t')
-
-    def test_compact(self):
-        self.assertEqual(List([None, 0, 2, []]).compact(), [2])
-        self.assertEqual(List([None, 0, 2, []]).compact(lambda x: x != None),
-                        [0, 2, []])
-
-    def test_flatten(self):
-        self.assertEqual(List([1, List([2, 3, 6, [7, [8]]])]).flatten(),
-                         [1, 2, 3, 6, 7, 8])
 
     def test_partial(self):
         (List('7')
@@ -372,28 +294,28 @@ class ListTest(unittest.TestCase):
 
     def test_kw_gt(self):
         (List([1, 2])
-          .keep(gt=1)
+          .keep(op.gt, 1)
           .do(self.assertEqual, [2]))
 
     def test_kw_ge(self):
         (List([1, 2])
-          .keep(ge=1)
+          .keep(op.ge, 1)
           .do(self.assertEqual, [1, 2]))
 
     def test_kw_lt(self):
         (List([1, 2])
-          .keep(lt=2)
+          .keep(op.lt, 2)
           .do(self.assertEqual, [1]))
 
     def test_kw_le(self):
         (List([1, 2])
-          .keep(le=2)
+          .keep(op.le, 2)
           .do(self.assertEqual, [1, 2]))
 
     def test_savelist(self):
-        x = List(range(1, 5)).saving()
-        x.keep(gt=2)
-        x.keep(lt=4)
+        x = List(range(1, 5))
+        x.keep(op.gt, 2)
+        x.keep(op.lt, 4)
         self.assertEqual(x, [3])
 
 

@@ -6,7 +6,7 @@ def read(fname):
 
 setup(
     name = "Moka",
-    version = "0.0.4",
+    version = "0.0.5",
     author = "phzbOx",
     author_email = "phzbox@gmail.com",
     description = ("minimalist functional library"),
