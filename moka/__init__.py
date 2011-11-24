@@ -2,6 +2,7 @@ import unittest
 import string
 import operator as op
 
+
 class Blank:
     pass
 
@@ -10,6 +11,10 @@ _ = Blank
 
 class List(list):
     """
+    List is a wrapper around the builtin list.
+    It provides a chainable interface and enhances it with
+    these methods:
+
     do
     tee
     map
@@ -17,23 +22,22 @@ class List(list):
     rem
     some/has
     all
-    count () = len, (x|f)
-    empty () == [], (f) -> x in [0, None]..
-
-    * Useful shortcut.
+    count
+    find
+    empty
     attr
     item
     invoke
 
-     aliases:
-     'append', 'extend', 'sort', 'reverse', 'insert'
+    Todo:
+    reduce/fold
     """
-
-    def __init__(self, *args, **kwargs):
-        list.__init__(self, *args, **kwargs)
 
     @staticmethod
     def _proxy(method_name):
+        """
+        Make builtin list methods return self instead of None.
+        """
         def wrap(self, *args, **kwargs):
             inst = List(self)
             getattr(list, method_name)(inst, *args, **kwargs)
@@ -41,18 +45,30 @@ class List(list):
 
         setattr(List, method_name, wrap)
 
-    def _f(self, *args, **kwargs):
+    def _moka_assign(self, items):
+        """
+        Assign enumerable to the list and return
+        self instead of None
+        """
+        self[:] = items
+        return self
+
+    def _f(self, f, *args, **kwargs):
+        """
+        Parse arguments and return a new function.
+
+        If there's no argument, return a function that call f.
+        If there are arguments, use the partial syntax and bind
+          the parameters to f.
+        """
+        if not args and not kwargs:
+            return lambda x: f(x)
+
+        if Blank not in args:
+            return lambda x: f(x, *args, **kwargs)
+
         args = list(args)
-
-        f = args.pop(0)
-
-        if Blank in args:
-            pos = args.index(Blank)
-        else:
-            args.insert(0, None)
-            pos = 0
-
-        args = list(args)
+        pos = args.index(Blank)
 
         def tmp(x):
             args[pos] = x
@@ -60,45 +76,93 @@ class List(list):
         return tmp
 
     def clone(self):
+        """
+        Returns a copy of the List
+        """
         return List(self)
 
-    def _moka_assign(self, items):
-        self[:] = items
-        return self
-
-    def map(self, *args, **kwargs):
-        f = self._f(*args, **kwargs)
-        return self._moka_assign(f(x) for x in self)
-
     def tee(self, *args, **kwargs):
+        """
+        Like 'do', but return self instead of the result.
+        """
         self.last_value = self._f(*args, **kwargs)(self)
         return self
 
     def do(self, *args, **kwargs):
+        """
+        Call a method and pass 'self' as first parameter.
+        List(..).do(some_method) <=> some_method(List(...))
+        """
         return self._f(*args, **kwargs)(self)
 
+    def map(self, *args, **kwargs):
+        """
+        List([1,2]).map(fn) <=> map(fn, [1,2])
+        """
+        f = self._f(*args, **kwargs)
+        return self._moka_assign(f(x) for x in self)
+
     def invoke(self, name, *args, **kwargs):
+        """
+        List([1,2]).invoke('__str__')
+        <=>
+        List([1,2]).map(lambda x: x.__str__())
+        """
         return self.map(lambda x: getattr(x, name)(*args, **kwargs))
 
     def attr(self, attr):
+        """
+        List([obj]).attr('attr')
+        <=>
+        List([obj]).map(lambda x: x.attr)
+        """
         return self.map(lambda x: getattr(x, attr))
 
     def item(self, item):
+        """
+        List([obj]).item('item')
+        <=>
+        List([obj]).map(lambda x: x[item])
+        """
         return self.map(lambda x: x[item])
 
-    def empty(self, *args):
-        if not args:
-            return len(self) == 0
+    def empty(self, *args, **kwargs):
+        """
+        Returns True if the list is empty.
+        A predicate can be given to specify 'what is True'.
+        List(..).empty(lambda x: x == None)
+        """
+        if not args and not kwargs:
+            return not bool(self)
         else:
-            return len(List(self).rem(args[0])) == 0
+            f = self._f(*args, **kwargs)
+
+            for x in self:
+                if f(x):
+                    continue
+                return False
+            return True
 
     def count(self, *args, **kwargs):
+        """
+        Returns the number of elements.
+        Can take a function to specify 'what to count'.
+        List(..).count(lambda x: x > 0)
+        """
         if not args and not kwargs:
             return len(self)
         else:
-            return len(List(self).keep(*args, **kwargs))
+            return (self
+                     .clone()
+                     .keep(*args, **kwargs)
+                     .count())
 
     def find(self, *args, **kwargs):
+        """
+        Return the first element that matches 'predicate'
+        or returns None.
+        List(..).find(lambda x: x == 3)
+        """
         f = self._f(*args, **kwargs)
 
         for x in self:
@@ -106,14 +170,27 @@ class List(list):
                 return x
 
     def keep(self, *args, **kwargs):
+        """
+        Select elements matching a predicate.
+        filter(..., [1,2]) <=> List([1,2]).keep(...)
+        """
         f = self._f(*args, **kwargs)
         return self._moka_assign(x for x in self if f(x))
 
     def rem(self, *args, **kwargs):
+        """
+        Like 'keep' but remove elements matching the predicate.
+        """
         f = self._f(*args, **kwargs)
         return self._moka_assign(x for x in self if not f(x))
 
     def some(self, *args, **kwargs):
+        """
+        Return True if at least one item match a predicate.
+        List([1,2]).some(lambda x == 2)
+        <=>
+        any(x == 2 for x in [1,2])
+        """
         f = self._f(*args, **kwargs)
 
         for x in self:
@@ -123,6 +200,12 @@ class List(list):
         return False
 
     def all(self, *args, **kwargs):
+        """
+        Return True if all items match a predicate.
+        List([2,2]).all(lambda x == 2)
+        <=>
+        all(x == 2 for x in [2,2])
+        """
         f = self._f(*args, **kwargs)
 
         for x in self:
@@ -135,6 +218,9 @@ class List(list):
     has = some
 
     def __getslice__(self, *args, **kwargs):
+        """
+        List(..)[2:4] returns moka.List instead of builtin list.
+        """
         return List(list.__getslice__(self, *args, **kwargs))
 
 
@@ -322,9 +408,9 @@ class ListTest(unittest.TestCase):
 class Dict(dict):
     """
     map x,y -> new y
-    keep
+    map()
+    keep(),
     rem
-    compact
     some/has
     all
     count () = len, (x|f)
